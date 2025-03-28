@@ -1,27 +1,56 @@
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
-import { ArrowRight, Share2 } from 'lucide-react'
+import { ArrowRight, Share2, Users } from 'lucide-react'
+import { WaitlistUser } from './types'
+import { addToWaitlist, getCurrentUser, validateEmail } from './lib/waitlist'
 
 function App() {
   const [email, setEmail] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [position, setPosition] = useState(0)
-  const [referralCode, setReferralCode] = useState('')
+  const [userData, setUserData] = useState<WaitlistUser | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    // Check for existing user
+    const user = getCurrentUser();
+    if (user) {
+      setUserData(user);
+      setSubmitted(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email) return
+    setError('')
+    setLoading(true)
 
-    // Simulate API call
-    setPosition(Math.floor(Math.random() * 100) + 1)
-    setReferralCode(btoa(email).slice(0, 8))
-    setSubmitted(true)
+    try {
+      if (!validateEmail(email)) {
+        throw new Error('Please enter a valid email address')
+      }
+
+      // Get referral code from URL if exists
+      const urlParams = new URLSearchParams(window.location.search)
+      const refCode = urlParams.get('ref')
+      
+      const user = addToWaitlist(email, refCode || undefined)
+      setUserData(user)
+      setSubmitted(true)
+      toast.success('Successfully joined the waitlist!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+      toast.error(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const copyReferralLink = () => {
-    const link = `${window.location.origin}?ref=${referralCode}`
+    if (!userData) return
+    const link = `${window.location.origin}?ref=${userData.referralCode}`
     navigator.clipboard.writeText(link)
     toast.success('Referral link copied!')
   }
@@ -49,7 +78,8 @@ function App() {
                 className="inline-block"
               >
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-800 text-gray-200">
-                  Coming Soon
+                  <Users className="w-4 h-4 mr-2" />
+                  Join the Waitlist
                 </span>
               </motion.div>
               
@@ -62,26 +92,46 @@ function App() {
             </div>
             
             <form onSubmit={handleSubmit} className="mt-10">
-              <div className="flex gap-x-4">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  className="min-w-0 flex-auto rounded-lg bg-gray-900 border border-gray-800 px-4 py-3 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg transition-all duration-200"
-                  required
-                />
-                <button
-                  type="submit"
-                  className="flex-none rounded-lg bg-blue-600 px-6 py-3 text-lg font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-black transition-all duration-200 group"
-                >
-                  Join 
-                  <ArrowRight className="ml-2 h-6 w-6 inline transition-transform group-hover:translate-x-1" />
-                </button>
+              <div className="flex flex-col gap-4">
+                {error && (
+                  <div className="text-red-500 text-sm text-center">
+                    {error}
+                  </div>
+                )}
+                <div className="flex gap-x-4">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    className="min-w-0 flex-auto rounded-lg bg-gray-900 border border-gray-800 px-4 py-3 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg transition-all duration-200"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-none rounded-lg bg-blue-600 px-6 py-3 text-lg font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-black transition-all duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <span className="flex items-center">
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Joining...
+                      </span>
+                    ) : (
+                      <span className="flex items-center">
+                        Join
+                        <ArrowRight className="ml-2 h-6 w-6 inline transition-transform group-hover:translate-x-1" />
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </motion.div>
-        ) : (
+        ) : userData ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -106,8 +156,13 @@ function App() {
                 You're in!
               </h2>
               <p className="text-xl text-gray-400">
-                Position <span className="text-white font-semibold">#{position}</span> in line
+                Position <span className="text-white font-semibold">#{userData.position}</span> in line
               </p>
+              {userData.referralCount > 0 && (
+                <p className="text-green-400">
+                  You've referred {userData.referralCount} {userData.referralCount === 1 ? 'person' : 'people'}!
+                </p>
+              )}
               <p className="text-gray-400">
                 Share your referral link to move up the list faster
               </p>
@@ -115,7 +170,7 @@ function App() {
             
             <div className="bg-gray-900 p-4 rounded-lg border border-gray-800">
               <p className="font-mono text-sm text-gray-400 break-all">
-                {window.location.origin}?ref={referralCode}
+                {window.location.origin}?ref={userData.referralCode}
               </p>
             </div>
             
@@ -127,7 +182,7 @@ function App() {
               Copy referral link
             </button>
           </motion.div>
-        )}
+        ) : null}
       </div>
       <Toaster position="top-center" theme="dark" />
     </div>
